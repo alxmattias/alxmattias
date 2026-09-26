@@ -254,13 +254,42 @@ def coincide_fuzzy(direccion_correo, patron_norm, umbral=0.72):
     return difflib.SequenceMatcher(None, patron_norm, t).ratio() >= umbral
 
 
-def archivos_todos():
-    """Todos los MessageTrace_*.csv disponibles, sin restricción de fecha."""
+RE_FECHA_ARCHIVO = re.compile(r"MessageTrace_(\d{8})")
+
+
+def extrae_fecha_archivo(nombre):
+    """Extrae la fecha (AAAAMMDD) del nombre de archivo, p. ej.
+    'MessageTrace_20210827_xxx.csv' -> date(2021, 8, 27). Regresa None si
+    el nombre no trae esa fecha (para no arriesgarse a descartarlo mal)."""
+    m = RE_FECHA_ARCHIVO.match(nombre)
+    if not m:
+        return None
+    try:
+        return datetime.strptime(m.group(1), "%Y%m%d").date()
+    except ValueError:
+        return None
+
+
+def archivos_todos(desde=None, hasta=None):
+    """
+    Todos los MessageTrace_*.csv disponibles. Si se dan `desde`/`hasta`
+    (objetos date), descarta de una vez los archivos cuyo nombre trae una
+    fecha (MessageTrace_AAAAMMDD...) fuera de ese rango, para no tener que
+    abrirlos y leerlos. Un archivo cuyo nombre no trae fecha reconocible
+    siempre se incluye (por seguridad, para no perder datos).
+    """
     candidatos = []
     for f in glob.glob(os.path.join(CSV_DIR, "MessageTrace_*.csv")):
         nombre = os.path.basename(f)
         if nombre in EXCLUDE_FILES:
             continue
+        if desde is not None or hasta is not None:
+            fecha_archivo = extrae_fecha_archivo(nombre)
+            if fecha_archivo is not None:
+                if desde is not None and fecha_archivo < desde:
+                    continue
+                if hasta is not None and fecha_archivo > hasta:
+                    continue
         candidatos.append(f)
     return sorted(candidatos)
 
@@ -545,7 +574,7 @@ def busca_patron(patron, campo="destinatario", desde=None, hasta=None, progreso=
     todo el histórico.
     """
     patron_norm = normaliza_texto(patron)
-    archivos = archivos_todos()
+    archivos = archivos_todos(desde=desde, hasta=hasta)
     total_archivos = len(archivos)
     if progreso:
         rango_txt = (
