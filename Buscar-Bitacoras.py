@@ -4,11 +4,18 @@
 Buscar-Bitacoras.py
 ====================
 Script único para consultar bitácoras de correo (Exchange Message Trace)
-directamente sobre los CSV de esta carpeta, con 3 modos de búsqueda. Todos
+directamente sobre los CSV de esta carpeta, con 4 modos de búsqueda y 4
+filtros extra que se pueden combinar con cualquiera de ellos. Todos
 comparten el mismo motor (multi-hilo, filtro rápido por nombre de archivo
 cuando das fechas, reconocimiento del correo aunque venga con nombre de
 display) y el mismo diseño de reporte Excel + PDF con formato INE.
 
+Variables/columnas disponibles en cada resultado (y en el Excel de
+detalle): fecha original y en CDMX/UTC-6, remitente, destinatario,
+asunto, estatus (con su descripción en español), tamaño en KB, IP de
+origen, y el MessageId (usable como filtro aunque no se muestre aparte).
+
+--------------------------------------------------------------------
 MODO 1 — Enviados/recibidos hacia o desde dominios EXTERNOS
 (omite los dominios de DOMINIOS_INTERNOS):
     python Buscar-Bitacoras.py --usuario correo@ine.mx --direccion enviados
@@ -25,8 +32,28 @@ a una palabra, o al revés con --campo remitente; tolera acentos y typos):
     python Buscar-Bitacoras.py --patron libelula --campo remitente
     python Buscar-Bitacoras.py --patron libelula --desde 2026-06-01 --hasta 2026-06-15
 
+MODO 4 — Búsqueda por ASUNTO (cualquier remitente/destinatario; tolera
+acentos y typos, igual que --patron):
+    python Buscar-Bitacoras.py --asunto "factura"
+    python Buscar-Bitacoras.py --asunto "cita programada" --desde 2026-06-01 --hasta 2026-06-15
+
+FILTROS EXTRA (se combinan con CUALQUIERA de los 4 modos anteriores):
+    --estatus   : por estatus del mensaje (Entregado, Error, Pendiente,
+                  En cuarentena, Filtrado como spam... o el nombre crudo
+                  de Exchange: Delivered, Failed, Quarantined, etc.)
+    --msgid     : subcadena del MessageId, para rastrear un mensaje puntual
+    --ip        : subcadena de la IP de origen (columna FromIP)
+    --asunto    : también sirve como filtro extra sobre los modos 1/2/3
+                  (ej. usuario que envió algo con "factura" en el asunto)
+
+Ejemplos combinando modo + filtros:
+    python Buscar-Bitacoras.py --usuario correo@ine.mx --direccion enviados --asunto factura --estatus error
+    python Buscar-Bitacoras.py --patron libelula --estatus "en cuarentena"
+    python Buscar-Bitacoras.py --msgid "1772407031850" --asunto cita
+    python Buscar-Bitacoras.py --usuario correo@ine.mx --todo --ip 200.34.165.45
+
 Sin argumentos, el script pregunta de forma interactiva qué modo usar.
---desde / --hasta son OPCIONALES en los 3 modos (formato AAAA-MM-DD,
+--desde / --hasta son OPCIONALES en los 4 modos (formato AAAA-MM-DD,
 horario CDMX); si no se indican, se revisa TODO el histórico disponible.
 
 Requisitos (una sola vez):
@@ -322,6 +349,28 @@ def coincide_fuzzy(direccion_correo, patron_norm, umbral=0.72):
     return difflib.SequenceMatcher(None, patron_norm, t).ratio() >= umbral
 
 
+def pasa_filtros_extra(subject, status, msgid, fromip, asunto_norm=None, estatus_norm=None,
+                        msgid_filtro=None, ip_filtro=None):
+    """
+    Filtros adicionales que se pueden combinar con CUALQUIER modo de
+    búsqueda (por usuario, por patrón o por asunto): asunto (aproximado,
+    tolera acentos/typos), estatus (por su nombre en español o el crudo
+    de Exchange), MessageId (subcadena) e IP de origen (subcadena). Cada
+    uno se ignora si viene en None/vacío.
+    """
+    if asunto_norm and not coincide_fuzzy(subject or "", asunto_norm, umbral=0.6):
+        return False
+    if estatus_norm:
+        et = normaliza_texto(status_label(status)) + " " + normaliza_texto(status)
+        if estatus_norm not in et:
+            return False
+    if msgid_filtro and msgid_filtro not in (msgid or "").lower():
+        return False
+    if ip_filtro and ip_filtro not in (fromip or "").lower():
+        return False
+    return True
+
+
 RE_CORREO = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 
 
@@ -514,7 +563,8 @@ def _linea_match_generica(x):
 # ============================================================
 # MODO 1: ENVIADOS/RECIBIDOS A DOMINIOS EXTERNOS
 # ============================================================
-def _procesa_archivo_direccion(path, usuario, direccion, desde, hasta):
+def _procesa_archivo_direccion(path, usuario, direccion, desde, hasta,
+                                asunto_norm=None, estatus_norm=None, msgid_filtro=None, ip_filtro=None):
     nombre_archivo = os.path.basename(path)
     try:
         filas = lee_csv_robusto(path)
@@ -549,6 +599,9 @@ def _procesa_archivo_direccion(path, usuario, direccion, desde, hasta):
         if dominio_otro in DOMINIOS_INTERNOS:
             continue
 
+        if not pasa_filtros_extra(subject, status, msgid, fromip, asunto_norm, estatus_norm, msgid_filtro, ip_filtro):
+            continue
+
         dt_cdmx = parsea_fecha_cdmx(received)
         if dt_cdmx is None:
             continue
@@ -560,14 +613,19 @@ def _procesa_archivo_direccion(path, usuario, direccion, desde, hasta):
         matches.append({
             "fecha_original": received.strip(), "fecha_cdmx": dt_cdmx, "fecha_utc": dt_cdmx.astimezone(TZ_UTC),
             "sender": sender, "recipient": recipient, "subject": subject, "status": status,
-            "size": size, "msgid": msgid, "_archivo_origen": nombre_archivo,
+            "fromip": fromip.strip(), "size": size, "msgid": msgid, "_archivo_origen": nombre_archivo,
         })
     return {"archivo": nombre_archivo, "error": None, "omitido_estructura": None, "matches": matches}
 
 
-def busca_direccion(usuario, direccion, desde=None, hasta=None, progreso=True, hilos=8, mostrar_coincidencias=True):
+def busca_direccion(usuario, direccion, desde=None, hasta=None, progreso=True, hilos=8, mostrar_coincidencias=True,
+                     asunto=None, estatus=None, msgid=None, ip=None):
     usuario = extrae_correo(usuario)
     archivos = archivos_todos(desde=desde, hasta=hasta)
+    asunto_norm = normaliza_texto(asunto) if asunto else None
+    estatus_norm = normaliza_texto(estatus) if estatus else None
+    msgid_filtro = msgid.strip().lower() if msgid else None
+    ip_filtro = ip.strip().lower() if ip else None
     if progreso:
         rango_txt = (
             f"del {desde.strftime('%d/%m/%Y')} al {hasta.strftime('%d/%m/%Y')}"
@@ -576,14 +634,16 @@ def busca_direccion(usuario, direccion, desde=None, hasta=None, progreso=True, h
         print(f"Revisando {len(archivos)} archivo(s) — {rango_txt} — {direccion} por {usuario} (externos)...")
 
     def procesa(path):
-        return _procesa_archivo_direccion(path, usuario, direccion, desde, hasta)
+        return _procesa_archivo_direccion(path, usuario, direccion, desde, hasta,
+                                           asunto_norm, estatus_norm, msgid_filtro, ip_filtro)
     return _reune_resultados(archivos, procesa, progreso, mostrar_coincidencias, _linea_match_generica, hilos=hilos)
 
 
 # ============================================================
 # MODO 2: TODO (enviados + recibidos, SIN excluir internos)
 # ============================================================
-def _procesa_archivo_todo(path, usuario, desde, hasta):
+def _procesa_archivo_todo(path, usuario, desde, hasta,
+                           asunto_norm=None, estatus_norm=None, msgid_filtro=None, ip_filtro=None):
     nombre_archivo = os.path.basename(path)
     try:
         filas = lee_csv_robusto(path)
@@ -609,6 +669,9 @@ def _procesa_archivo_todo(path, usuario, desde, hasta):
         if usuario != s_low and usuario != r_low:
             continue
 
+        if not pasa_filtros_extra(subject, status, msgid, fromip, asunto_norm, estatus_norm, msgid_filtro, ip_filtro):
+            continue
+
         dt_cdmx = parsea_fecha_cdmx(received)
         if dt_cdmx is None:
             continue
@@ -620,14 +683,19 @@ def _procesa_archivo_todo(path, usuario, desde, hasta):
         matches.append({
             "fecha_original": received.strip(), "fecha_cdmx": dt_cdmx, "fecha_utc": dt_cdmx.astimezone(TZ_UTC),
             "sender": sender, "recipient": recipient, "subject": subject, "status": status,
-            "size": size, "msgid": msgid, "_archivo_origen": nombre_archivo,
+            "fromip": fromip.strip(), "size": size, "msgid": msgid, "_archivo_origen": nombre_archivo,
         })
     return {"archivo": nombre_archivo, "error": None, "omitido_estructura": None, "matches": matches}
 
 
-def busca_todo(usuario, desde=None, hasta=None, progreso=True, hilos=8, mostrar_coincidencias=True):
+def busca_todo(usuario, desde=None, hasta=None, progreso=True, hilos=8, mostrar_coincidencias=True,
+                asunto=None, estatus=None, msgid=None, ip=None):
     usuario = extrae_correo(usuario)
     archivos = archivos_todos(desde=desde, hasta=hasta)
+    asunto_norm = normaliza_texto(asunto) if asunto else None
+    estatus_norm = normaliza_texto(estatus) if estatus else None
+    msgid_filtro = msgid.strip().lower() if msgid else None
+    ip_filtro = ip.strip().lower() if ip else None
     if progreso:
         rango_txt = (
             f"del {desde.strftime('%d/%m/%Y')} al {hasta.strftime('%d/%m/%Y')}"
@@ -636,14 +704,15 @@ def busca_todo(usuario, desde=None, hasta=None, progreso=True, hilos=8, mostrar_
         print(f"Revisando {len(archivos)} archivo(s) — {rango_txt} — TODO lo enviado/recibido por {usuario} (incluye internos)...")
 
     def procesa(path):
-        return _procesa_archivo_todo(path, usuario, desde, hasta)
+        return _procesa_archivo_todo(path, usuario, desde, hasta, asunto_norm, estatus_norm, msgid_filtro, ip_filtro)
     return _reune_resultados(archivos, procesa, progreso, mostrar_coincidencias, _linea_match_generica, hilos=hilos)
 
 
 # ============================================================
 # MODO 3: BÚSQUEDA POR PATRÓN (cualquier remitente)
 # ============================================================
-def _procesa_archivo_patron(path, patron_norm, campo, desde, hasta):
+def _procesa_archivo_patron(path, patron_norm, campo, desde, hasta,
+                             asunto_norm=None, estatus_norm=None, msgid_filtro=None, ip_filtro=None):
     nombre_archivo = os.path.basename(path)
     try:
         filas = lee_csv_robusto(path)
@@ -669,6 +738,8 @@ def _procesa_archivo_patron(path, patron_norm, campo, desde, hasta):
         objetivo = recipient if campo == "destinatario" else sender
         if not coincide_fuzzy(objetivo, patron_norm):
             continue
+        if not pasa_filtros_extra(subject, status, msgid, fromip, asunto_norm, estatus_norm, msgid_filtro, ip_filtro):
+            continue
 
         dt_cdmx = parsea_fecha_cdmx(received)
         if dt_cdmx is None:
@@ -681,14 +752,19 @@ def _procesa_archivo_patron(path, patron_norm, campo, desde, hasta):
         matches.append({
             "fecha_original": received.strip(), "fecha_cdmx": dt_cdmx, "fecha_utc": dt_cdmx.astimezone(TZ_UTC),
             "sender": sender, "recipient": recipient, "subject": subject, "status": status,
-            "size": size, "msgid": msgid, "_archivo_origen": nombre_archivo,
+            "fromip": fromip.strip(), "size": size, "msgid": msgid, "_archivo_origen": nombre_archivo,
         })
     return {"archivo": nombre_archivo, "error": None, "omitido_estructura": None, "matches": matches}
 
 
-def busca_patron(patron, campo="destinatario", desde=None, hasta=None, progreso=True, hilos=8, mostrar_coincidencias=True):
+def busca_patron(patron, campo="destinatario", desde=None, hasta=None, progreso=True, hilos=8, mostrar_coincidencias=True,
+                  asunto=None, estatus=None, msgid=None, ip=None):
     patron_norm = normaliza_texto(patron)
     archivos = archivos_todos(desde=desde, hasta=hasta)
+    asunto_norm = normaliza_texto(asunto) if asunto else None
+    estatus_norm = normaliza_texto(estatus) if estatus else None
+    msgid_filtro = msgid.strip().lower() if msgid else None
+    ip_filtro = ip.strip().lower() if ip else None
     if progreso:
         rango_txt = (
             f"del {desde.strftime('%d/%m/%Y')} al {hasta.strftime('%d/%m/%Y')}"
@@ -697,7 +773,75 @@ def busca_patron(patron, campo="destinatario", desde=None, hasta=None, progreso=
         print(f"Revisando {len(archivos)} archivo(s) — {rango_txt} — buscando '{patron}' en {campo}...")
 
     def procesa(path):
-        return _procesa_archivo_patron(path, patron_norm, campo, desde, hasta)
+        return _procesa_archivo_patron(path, patron_norm, campo, desde, hasta,
+                                        asunto_norm, estatus_norm, msgid_filtro, ip_filtro)
+    return _reune_resultados(archivos, procesa, progreso, mostrar_coincidencias, _linea_match_generica, hilos=hilos)
+
+
+# ============================================================
+# MODO 4: BÚSQUEDA POR ASUNTO (cualquier remitente y destinatario)
+# ============================================================
+def _procesa_archivo_asunto(path, asunto_norm, desde, hasta,
+                             estatus_norm=None, msgid_filtro=None, ip_filtro=None):
+    nombre_archivo = os.path.basename(path)
+    try:
+        filas = lee_csv_robusto(path)
+    except Exception as e:
+        return {"archivo": nombre_archivo, "error": str(e), "omitido_estructura": None, "matches": []}
+    if not filas:
+        return {"archivo": nombre_archivo, "error": None, "omitido_estructura": None, "matches": []}
+    if len(filas[0]) != 8:
+        return {
+            "archivo": nombre_archivo, "error": None,
+            "omitido_estructura": f"{nombre_archivo} ({len(filas[0])} columnas, se esperaban 8)",
+            "matches": [],
+        }
+
+    matches = []
+    for fila in filas:
+        if len(fila) != 8:
+            continue
+        received, sender, recipient, subject, status, fromip, size, msgid = fila[:8]
+        if received.strip().lower() == "received":
+            continue
+
+        if not coincide_fuzzy(subject or "", asunto_norm, umbral=0.6):
+            continue
+        if not pasa_filtros_extra(subject, status, msgid, fromip, None, estatus_norm, msgid_filtro, ip_filtro):
+            continue
+
+        dt_cdmx = parsea_fecha_cdmx(received)
+        if dt_cdmx is None:
+            continue
+        if desde is not None and dt_cdmx.date() < desde:
+            continue
+        if hasta is not None and dt_cdmx.date() > hasta:
+            continue
+
+        matches.append({
+            "fecha_original": received.strip(), "fecha_cdmx": dt_cdmx, "fecha_utc": dt_cdmx.astimezone(TZ_UTC),
+            "sender": sender, "recipient": recipient, "subject": subject, "status": status,
+            "fromip": fromip.strip(), "size": size, "msgid": msgid, "_archivo_origen": nombre_archivo,
+        })
+    return {"archivo": nombre_archivo, "error": None, "omitido_estructura": None, "matches": matches}
+
+
+def busca_asunto(asunto, desde=None, hasta=None, progreso=True, hilos=8, mostrar_coincidencias=True,
+                  estatus=None, msgid=None, ip=None):
+    asunto_norm = normaliza_texto(asunto)
+    archivos = archivos_todos(desde=desde, hasta=hasta)
+    estatus_norm = normaliza_texto(estatus) if estatus else None
+    msgid_filtro = msgid.strip().lower() if msgid else None
+    ip_filtro = ip.strip().lower() if ip else None
+    if progreso:
+        rango_txt = (
+            f"del {desde.strftime('%d/%m/%Y')} al {hasta.strftime('%d/%m/%Y')}"
+            if (desde or hasta) else "TODO el histórico disponible"
+        )
+        print(f"Revisando {len(archivos)} archivo(s) — {rango_txt} — buscando '{asunto}' en el asunto (cualquier remitente/destinatario)...")
+
+    def procesa(path):
+        return _procesa_archivo_asunto(path, asunto_norm, desde, hasta, estatus_norm, msgid_filtro, ip_filtro)
     return _reune_resultados(archivos, procesa, progreso, mostrar_coincidencias, _linea_match_generica, hilos=hilos)
 
 
@@ -755,11 +899,11 @@ def crea_hoja_detalle(ws, titulo_pestana, lista_datos):
 
     ws.sheet_view.showGridLines = False
     ancho_num = max(4, len(str(len(lista_datos))) + 2)
-    widths = [ancho_num, 18, 18, 26, 26, 45, 14, 10]
+    widths = [ancho_num, 18, 18, 26, 26, 45, 14, 10, 15]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
-    LAST_COL = 8
+    LAST_COL = 9
     r = _encabezado_institucional(ws, LAST_COL)
 
     c = ws.cell(r, 2, f"DETALLE DE MENSAJES {titulo_pestana.upper()}")
@@ -770,7 +914,7 @@ def crea_hoja_detalle(ws, titulo_pestana, lista_datos):
     ws.row_dimensions[r].height = 24
     r += 2
 
-    headers = ["#", "FECHA ORIGINAL", "FECHA (CDMX / UTC-6)", "REMITENTE", "DESTINATARIO", "ASUNTO", "ESTATUS", "TAMAÑO (KB)"]
+    headers = ["#", "FECHA ORIGINAL", "FECHA (CDMX / UTC-6)", "REMITENTE", "DESTINATARIO", "ASUNTO", "ESTATUS", "TAMAÑO (KB)", "IP DE ORIGEN"]
     for j, h in enumerate(headers, start=1):
         c = ws.cell(r, j, h)
         c.font = F(bold=True, size=9, color=BLANCO)
@@ -792,12 +936,12 @@ def crea_hoja_detalle(ws, titulo_pestana, lista_datos):
         except (ValueError, TypeError):
             kb = ""
         vals = [idx, x["fecha_original"], x["fecha_cdmx"].strftime("%d/%m/%Y %H:%M:%S"),
-                x["sender"], x["recipient"], x["subject"], st_es, kb]
+                x["sender"], x["recipient"], x["subject"], st_es, kb, x.get("fromip", "")]
         zebra = idx % 2 == 0
         for j, v in enumerate(vals, start=1):
             c = ws.cell(r, j, v)
             c.font = font_detalle
-            c.alignment = align_center if j in (1, 2, 3, 7, 8) else align_left
+            c.alignment = align_center if j in (1, 2, 3, 7, 8, 9) else align_left
             c.border = border_bottom
             if zebra:
                 c.fill = fill_zebra
@@ -1296,6 +1440,105 @@ def genera_excel_patron(resultados, patron, campo, desde, hasta, out_path):
     return len(resultados), out_path
 
 
+def genera_excel_asunto(resultados, asunto, desde, hasta, out_path, estatus=None, msgid=None, ip=None):
+    """Modo 4: búsqueda por asunto, cualquier remitente/destinatario. 2
+    pestañas: Resumen + Coincidencias."""
+    thin = Side(style="thin", color="BFBFBF")
+    border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    wb = openpyxl.Workbook()
+    ws1 = wb.active
+    ws1.title = "Resumen"
+    ws1.sheet_view.showGridLines = False
+
+    LAST_COL = 7
+    widths = [6, 20, 26, 26, 45, 14, 10]
+    for i, w in enumerate(widths, start=1):
+        ws1.column_dimensions[get_column_letter(i)].width = w
+
+    r = _encabezado_institucional(ws1, LAST_COL)
+    c = ws1.cell(r, 2, "REPORTE DE BÚSQUEDA POR ASUNTO EN BITÁCORA DE CORREO")
+    c.font = F(bold=True, size=14, color=BLANCO)
+    c.fill = PatternFill("solid", fgColor=LILA_INST)
+    c.alignment = Alignment(horizontal="center")
+    ws1.merge_cells(start_row=r, start_column=2, end_row=r, end_column=LAST_COL)
+    ws1.row_dimensions[r].height = 24
+    r += 2
+
+    def bloque_titulo(row, texto):
+        ws1.merge_cells(start_row=row, start_column=2, end_row=row, end_column=LAST_COL)
+        c = ws1.cell(row, 2, texto)
+        c.font = F(bold=True, size=11, color=BLANCO)
+        c.fill = PatternFill("solid", fgColor=LILA_OSCURO)
+        c.alignment = Alignment(horizontal="left", indent=1, vertical="center")
+        ws1.row_dimensions[row].height = 20
+
+    bloque_titulo(r, "DATOS DE LA CONSULTA")
+    r += 1
+    if resultados:
+        primer_fecha = min(x["fecha_cdmx"] for x in resultados).strftime("%d/%m/%Y")
+        ultima_fecha = max(x["fecha_cdmx"] for x in resultados).strftime("%d/%m/%Y")
+        rango_encontrado_txt = f"{primer_fecha} al {ultima_fecha} (horario CDMX)"
+    else:
+        rango_encontrado_txt = "Sin resultados en el rango/histórico revisado"
+    rango_pedido_txt = (
+        f"{desde.strftime('%d/%m/%Y') if desde else 'inicio del histórico'} al "
+        f"{hasta.strftime('%d/%m/%Y') if hasta else 'hoy'}"
+        if (desde or hasta) else "TODO el histórico disponible (sin filtro de fecha)"
+    )
+    datos = [
+        ("Asunto buscado:", asunto),
+        ("Remitente/Destinatario:", "Cualquiera"),
+        ("Rango solicitado:", rango_pedido_txt),
+        ("Rango real encontrado:", rango_encontrado_txt),
+        ("Fecha de generación:", datetime.now(TZ_CDMX).strftime("%d/%m/%Y %H:%M hrs (CDMX)")),
+        ("Nota:", "La coincidencia es aproximada (tolera acentos, mayúsculas y pequeñas variantes de escritura)."),
+    ]
+    if estatus:
+        datos.append(("Filtro de estatus:", estatus))
+    if msgid:
+        datos.append(("Filtro de MessageId:", msgid))
+    if ip:
+        datos.append(("Filtro de IP de origen:", ip))
+    for etiqueta, valor in datos:
+        c1 = ws1.cell(r, 2, etiqueta)
+        c1.font = F(bold=True, size=10)
+        ws1.merge_cells(start_row=r, start_column=2, end_row=r, end_column=3)
+        ws1.merge_cells(start_row=r, start_column=4, end_row=r, end_column=LAST_COL)
+        ws1.cell(r, 4, valor).font = F(size=10)
+        r += 1
+    r += 1
+
+    bloque_titulo(r, "RESUMEN CONSOLIDADO")
+    r += 1
+    c1 = ws1.cell(r, 2, "Total de coincidencias")
+    c1.font = F(bold=True, size=10)
+    ws1.merge_cells(start_row=r, start_column=2, end_row=r, end_column=5)
+    ws1.merge_cells(start_row=r, start_column=6, end_row=r, end_column=LAST_COL)
+    c2 = ws1.cell(r, 6, len(resultados))
+    c2.font = F(size=13, bold=True, color=LILA_INST)
+    c2.alignment = Alignment(horizontal="center")
+    for col in range(2, LAST_COL + 1):
+        ws1.cell(r, col).border = border_all
+    ws1.row_dimensions[r].height = 20
+    r += 2
+
+    r = _bloque_resumen_status(ws1, r, LAST_COL, resultados, border_all)
+
+    ws1.page_setup.orientation = "landscape"
+    ws1.page_setup.fitToWidth = 1
+    ws1.page_setup.fitToHeight = 0
+    ws1.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
+    ws1.page_margins = PageMargins(left=0.4, right=0.4, top=0.5, bottom=0.5)
+    ws1.print_area = f"A1:{get_column_letter(LAST_COL)}{r}"
+
+    ws2 = wb.create_sheet(title="Coincidencias")
+    crea_hoja_detalle(ws2, "coincidentes", resultados)
+
+    out_path = _guarda_workbook(wb, out_path)
+    return len(resultados), out_path
+
+
 def escribe_log_auditoria(etiqueta, modo_desc, auditoria, total_encontrados, xlsx_path):
     """
     Escribe (agrega) el detalle técnico de la búsqueda a un log propio en
@@ -1363,9 +1606,11 @@ def main():
     tiempo_inicio_total = time.time()
     ap = argparse.ArgumentParser(
         description=(
-            "Consulta bitácoras de correo en 3 modos: enviados/recibidos a"
-            " externos, TODO (incluye internos), o búsqueda por PATRÓN"
-            " (cualquier remitente)."
+            "Consulta bitácoras de correo en 4 modos: enviados/recibidos a"
+            " externos, TODO (incluye internos), búsqueda por PATRÓN"
+            " (destinatario/remitente, cualquier correo) o por ASUNTO"
+            " (cualquier remitente/destinatario). Se pueden combinar con"
+            " filtros extra: --asunto, --estatus, --msgid, --ip."
         )
     )
     ap.add_argument("--usuario", help="Correo del usuario a buscar (modos 'direccion' y 'todo')")
@@ -1374,9 +1619,23 @@ def main():
     ap.add_argument("--todo", action="store_true",
                      help="Modo 2: TODO lo enviado y recibido por el usuario, SIN excluir dominios internos.")
     ap.add_argument("--patron", default=None,
-                     help="Modo 3: busca cualquier correo (de cualquier remitente) parecido a esta palabra.")
+                     help="Modo 3: busca cualquier correo (de cualquier remitente) parecido a esta palabra"
+                          " en destinatario/remitente (ver --campo).")
     ap.add_argument("--campo", choices=["destinatario", "remitente"], default="destinatario",
                      help="Solo con --patron: en qué campo buscar el parecido (default: destinatario).")
+    ap.add_argument("--asunto", default=None,
+                     help="Filtro por ASUNTO (aproximado, tolera acentos/typos). Usado solo (sin --usuario"
+                          " ni --patron) es el Modo 4: cualquier remitente/destinatario. Combinado con"
+                          " --usuario o --patron, se suma como filtro extra sobre ese modo.")
+    ap.add_argument("--estatus", default=None,
+                     help="Filtro extra (cualquier modo): por estatus del mensaje, en español (Entregado,"
+                          " Error, Pendiente, En cuarentena, Filtrado como spam, etc.) o el nombre crudo"
+                          " de Exchange (Delivered, Failed, Quarantined...).")
+    ap.add_argument("--msgid", default=None,
+                     help="Filtro extra (cualquier modo): subcadena del MessageId, para rastrear un"
+                          " mensaje específico.")
+    ap.add_argument("--ip", default=None,
+                     help="Filtro extra (cualquier modo): subcadena de la IP de origen (columna FromIP).")
     ap.add_argument("--desde", type=parsea_fecha_arg, default=None, help="Fecha inicial AAAA-MM-DD (opcional, todos los modos).")
     ap.add_argument("--hasta", type=parsea_fecha_arg, default=None, help="Fecha final AAAA-MM-DD (opcional, todos los modos).")
     ap.add_argument("--csv-dir", dest="csv_dir", default=None, help=f"Carpeta con los MessageTrace_*.csv (default: {CSV_DIR}).")
@@ -1395,11 +1654,58 @@ def main():
 
     mostrar = not args.silencioso
 
+    # -------------------- MODO 4: ASUNTO (independiente) --------------------
+    if args.asunto and not (args.usuario or args.direccion or args.todo or args.patron):
+        resultados, auditoria = busca_asunto(
+            args.asunto, desde=args.desde, hasta=args.hasta, hilos=args.hilos, mostrar_coincidencias=mostrar,
+            estatus=args.estatus, msgid=args.msgid, ip=args.ip,
+        )
+        print(f"Encontrados: {len(resultados)} mensaje(s) único(s).")
+        print(f"Archivos revisados: {auditoria['archivos_procesados_ok']} de {auditoria['archivos_candidatos']} candidatos.")
+        if auditoria["archivos_omitidos_estructura"]:
+            print(f"[ATENCIÓN] {len(auditoria['archivos_omitidos_estructura'])} archivo(s) con estructura distinta a la esperada:")
+            for nombre in auditoria["archivos_omitidos_estructura"]:
+                print(f"    - {nombre}")
+        if auditoria.get("archivos_con_error"):
+            print(f"[ATENCIÓN] {len(auditoria['archivos_con_error'])} archivo(s) con error de lectura:")
+            for nombre in auditoria["archivos_con_error"]:
+                print(f"    - {nombre}")
+        if auditoria["duplicados"]:
+            print(f"Se detectaron y omitieron {auditoria['duplicados']} registro(s) duplicado(s) entre los archivos.")
+        print(f"Tiempo de búsqueda: {formatea_duracion(auditoria['tiempo_busqueda_seg'])}")
+
+        etiqueta_log = f"asunto_{args.asunto}"
+        modo_desc = f"Búsqueda por asunto '{args.asunto}' (cualquier remitente/destinatario)"
+        if not resultados:
+            print("No se generará reporte: no hubo coincidencias para ese asunto.")
+            log_path = escribe_log_auditoria(etiqueta_log, modo_desc, auditoria, 0, "N/A (sin resultados)")
+            print(f"Auditoría agregada al log: {log_path}")
+            print(f"Tiempo total: {formatea_duracion(time.time() - tiempo_inicio_total)}")
+            sys.exit(0)
+
+        safe_asunto = re.sub(r"[^a-zA-Z0-9]", "_", args.asunto)
+        sufijo_fechas = (
+            f"_{args.desde.strftime('%Y%m%d') if args.desde else 'inicio'}-{args.hasta.strftime('%Y%m%d') if args.hasta else 'hoy'}"
+            if (args.desde or args.hasta) else "_TODO"
+        )
+        xlsx_path = os.path.join(OUT_DIR, f"CorreosAsunto_{safe_asunto}{sufijo_fechas}.xlsx")
+        total, xlsx_path = genera_excel_asunto(resultados, args.asunto, args.desde, args.hasta, xlsx_path,
+                                                estatus=args.estatus, msgid=args.msgid, ip=args.ip)
+        print(f"Excel generado: {xlsx_path}")
+        log_path = escribe_log_auditoria(etiqueta_log, modo_desc, auditoria, len(resultados), xlsx_path)
+        print(f"Auditoría agregada al log: {log_path}")
+        pdf_path = os.path.splitext(xlsx_path)[0] + ".pdf"
+        if exporta_pdf(xlsx_path, pdf_path):
+            print(f"PDF generado: {pdf_path}")
+        print(f"Tiempo total: {formatea_duracion(time.time() - tiempo_inicio_total)}")
+        return
+
     # -------------------- MODO 3: PATRÓN --------------------
     if args.patron:
         resultados, auditoria = busca_patron(
             args.patron, campo=args.campo, desde=args.desde, hasta=args.hasta,
             hilos=args.hilos, mostrar_coincidencias=mostrar,
+            asunto=args.asunto, estatus=args.estatus, msgid=args.msgid, ip=args.ip,
         )
         print(f"Encontrados: {len(resultados)} mensaje(s) único(s).")
         print(f"Archivos revisados: {auditoria['archivos_procesados_ok']} de {auditoria['archivos_candidatos']} candidatos.")
@@ -1454,11 +1760,13 @@ def main():
     if modo == "todo":
         resultados, auditoria = busca_todo(
             usuario, desde=args.desde, hasta=args.hasta, hilos=args.hilos, mostrar_coincidencias=mostrar,
+            asunto=args.asunto, estatus=args.estatus, msgid=args.msgid, ip=args.ip,
         )
         modo_desc = "TODO lo enviado y recibido (incluye correos internos↔internos)"
     else:
         resultados, auditoria = busca_direccion(
             usuario, modo, desde=args.desde, hasta=args.hasta, hilos=args.hilos, mostrar_coincidencias=mostrar,
+            asunto=args.asunto, estatus=args.estatus, msgid=args.msgid, ip=args.ip,
         )
         modo_desc = (
             "Correos ENVIADOS por el usuario hacia dominios externos" if modo == "enviados"
