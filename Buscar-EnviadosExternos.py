@@ -146,6 +146,21 @@ def parsea_fecha_arg(texto):
         )
 
 
+RE_CORREO = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+
+
+def extrae_correo(texto):
+    """
+    Extrae la dirección de correo de un campo que puede venir como
+    'usuario@dominio.com' (limpio) o como 'Nombre Apellido <usuario@dominio.com>'
+    (con nombre para mostrar). Si no encuentra un patrón de correo, regresa
+    el texto tal cual (recortado y en minúsculas) para no perder el dato.
+    """
+    t = (texto or "").strip()
+    m = RE_CORREO.search(t)
+    return m.group(0).lower() if m else t.lower()
+
+
 RE_FECHA_ARCHIVO = re.compile(r"MessageTrace_(\d{8})")
 
 
@@ -254,7 +269,7 @@ def _procesa_un_archivo(path, usuario, desde, hasta):
         received, sender, recipient, subject, status, fromip, size, msgid = fila[:8]
         if received.strip().lower() == "received":
             continue
-        s_low, r_low = sender.strip().lower(), recipient.strip().lower()
+        s_low, r_low = extrae_correo(sender), extrae_correo(recipient)
         if s_low != usuario:
             continue
         dominio_destino = r_low.rsplit("@", 1)[-1] if "@" in r_low else ""
@@ -286,7 +301,7 @@ def _procesa_un_archivo(path, usuario, desde, hasta):
 
 
 def busca(usuario, desde=None, hasta=None, progreso=True, hilos=8, mostrar_coincidencias=True):
-    usuario = usuario.strip().lower()
+    usuario = extrae_correo(usuario)
     archivos = archivos_todos(desde=desde, hasta=hasta)
     total_archivos = len(archivos)
     if progreso:
