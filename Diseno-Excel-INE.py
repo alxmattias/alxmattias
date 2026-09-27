@@ -19,12 +19,19 @@ Cómo usarlo en otro script:
 
 Corre este archivo directo (`python Diseno-Excel-INE.py`) y genera
 `Demo-Diseno.xlsx` con un ejemplo de cada pieza, para que abras el Excel y
-veas exactamente cómo se ve cada función que uses.
+veas exactamente cómo se ve cada función que uses. Pásale la ruta de un
+logo como argumento para probar esa pieza también:
+    python Diseno-Excel-INE.py ruta/al/logo.png
 
-Requisito: pip install openpyxl
+Requisitos: pip install openpyxl pillow
+(pillow solo es necesaria si vas a usar logo_path/inserta_logo(); sin ella
+el encabezado simplemente cae en el texto).
 """
 
+import os
+
 from openpyxl import Workbook
+from openpyxl.drawing.image import Image as XLImage
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.page import PageMargins
@@ -52,24 +59,67 @@ def fuente(**kwargs):
 
 
 # ============================================================
-# PIEZA 1: Encabezado institucional (3 líneas de texto, sin logo —
-# una imagen embebida mal generada se ve como un cuadro negro en Excel,
-# así que el diseño usa texto siempre, no imagen).
+# PIEZA 1a: Logo (opcional). Se valida con PIL ANTES de insertarlo en el
+# Excel: una imagen corrupta o con datos truncados suele "decodificar" el
+# encabezado sin error pero se ve como un cuadro negro/gris sólido al
+# abrir el archivo. Forzar la carga completa aquí evita ese problema —
+# si falla, no se inserta nada (deja hueco para el texto en su lugar).
 # ============================================================
-def encabezado_institucional(ws, last_col, linea1="INSTITUTO NACIONAL ELECTORAL",
+def inserta_logo(ws, image_path, cell="B1", ancho_px=240, filas_alto=(1, 2), alto_fila_px=32):
+    """
+    Inserta una imagen (logo) anclada en `cell`, escalada a `ancho_px` de
+    ancho manteniendo la proporción. Regresa True si se insertó, False si
+    no (archivo inexistente, formato no soportado, imagen corrupta, etc.)
+    — en ese caso el llamador debe usar el texto de respaldo en su lugar.
+    """
+    if not image_path or not os.path.isfile(image_path):
+        return False
+    try:
+        from PIL import Image as PILImage
+        with PILImage.open(image_path) as pil_img:
+            pil_img.load()  # fuerza la decodificación completa, no solo el header
+            ancho_orig, alto_orig = pil_img.size
+    except Exception:
+        return False
+
+    try:
+        img = XLImage(image_path)
+        alto_px = int(ancho_px * alto_orig / ancho_orig) if ancho_orig else 65
+        img.width = ancho_px
+        img.height = alto_px
+        for fila in filas_alto:
+            ws.row_dimensions[fila].height = alto_fila_px
+        ws.add_image(img, cell)
+        return True
+    except Exception:
+        return False
+
+
+# ============================================================
+# PIEZA 1b: Encabezado institucional (logo opcional + 2 líneas de texto,
+# o 3 líneas de texto si no hay logo o no se pudo insertar).
+# ============================================================
+def encabezado_institucional(ws, last_col, logo_path=None,
+                              linea1="INSTITUTO NACIONAL ELECTORAL",
                               linea2="Unidad Técnica de Servicios de Informática (UTSI)",
                               linea3="Departamento de Soporte Técnico y Administración de Servicios de"
                                      " Colaboración (DSTyASC)"):
     """
-    Dibuja el encabezado de 3 líneas a partir de la fila 1, columna B
-    (deja la columna A libre como margen visual). Regresa el número de
-    fila donde puede continuar el resto del contenido.
+    Dibuja el encabezado a partir de la fila 1, columna B (deja la
+    columna A libre como margen visual). Si `logo_path` apunta a una
+    imagen válida, la inserta y omite `linea1` (el logo ya trae el
+    nombre); si no hay logo o falla la validación, cae en las 3 líneas de
+    texto. Regresa el número de fila donde puede continuar el resto del
+    contenido.
     """
     r = 1
-    ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=last_col)
-    c = ws.cell(r, 2, linea1)
-    c.font = fuente(bold=True, size=15, color=COLOR_PRINCIPAL)
-    r += 1
+    if logo_path and inserta_logo(ws, logo_path, cell=f"B{r}"):
+        r = 3
+    else:
+        ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=last_col)
+        c = ws.cell(r, 2, linea1)
+        c.font = fuente(bold=True, size=15, color=COLOR_PRINCIPAL)
+        r += 1
 
     ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=last_col)
     ws.cell(r, 2, linea2).font = fuente(size=11)
@@ -210,13 +260,16 @@ def oculta_no_usado(ws, last_col, last_row, col_buffer=40, row_buffer=300):
 # DEMO: genera un Excel de ejemplo usando las 5 piezas de arriba
 # ============================================================
 def _demo():
+    import sys
+    logo_path = sys.argv[1] if len(sys.argv) > 1 else None
+
     wb = Workbook()
     ws = wb.active
     ws.title = "Demo"
     ws.sheet_view.showGridLines = False
 
     LAST_COL = 7
-    r = encabezado_institucional(ws, LAST_COL)
+    r = encabezado_institucional(ws, LAST_COL, logo_path=logo_path)
     r = titulo_seccion(ws, r, LAST_COL, "REPORTE DE EJEMPLO")
     r += 1
 
