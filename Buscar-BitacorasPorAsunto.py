@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Buscar-Bitacoras.py
+Buscar-BitacorasPorAsunto.py
 ====================
 Busca bitácoras de correo (Exchange Message Trace) por usuario y rango de
 fechas, directamente sobre los CSV que están en esta misma carpeta, y genera
@@ -15,15 +15,15 @@ difusa (sirve aunque el usuario esté mal escrito, con acentos, con typos,
 etc.), con la opción de acotar por rango de fechas.
 
 USO (modo por usuario, histórico completo):
-    python Buscar-Bitacoras.py --usuario correo@ine.mx --direccion enviados
-    python Buscar-Bitacoras.py --usuario correo@ine.mx --direccion recibidos
-    python Buscar-Bitacoras.py                     (modo interactivo, sin argumentos)
+    python Buscar-BitacorasPorAsunto.py --usuario correo@ine.mx --direccion enviados
+    python Buscar-BitacorasPorAsunto.py --usuario correo@ine.mx --direccion recibidos
+    python Buscar-BitacorasPorAsunto.py                     (modo interactivo, sin argumentos)
 
 USO (modo por PATRÓN, cualquier remitente -> destinatario parecido a "libelula"):
-    python Buscar-Bitacoras.py --patron libelula
-    python Buscar-Bitacoras.py --patron libelula --campo destinatario
-    python Buscar-Bitacoras.py --patron libelula --campo remitente
-    python Buscar-Bitacoras.py --patron libelula --desde 2026-06-01 --hasta 2026-06-15
+    python Buscar-BitacorasPorAsunto.py --patron libelula
+    python Buscar-BitacorasPorAsunto.py --patron libelula --campo destinatario
+    python Buscar-BitacorasPorAsunto.py --patron libelula --campo remitente
+    python Buscar-BitacorasPorAsunto.py --patron libelula --desde 2026-06-01 --hasta 2026-06-15
 
     --campo indica en qué columna se busca el parecido ("destinatario" es
     el default: Remitente = * / cualquiera, Destinatario ~ patrón).
@@ -361,7 +361,7 @@ def _procesa_un_archivo(path, usuario, direccion):
 
     # Validación de estructura: se espera EXACTAMENTE 8 columnas. Un archivo
     # con más o menos columnas se RECHAZA por completo en vez de leerlo a
-    # ciegas (ver explicación larga en Buscar-Bitacoras.py).
+    # ciegas (ver explicación larga en Buscar-BitacorasPorAsunto.py).
     if len(filas[0]) != 8:
         return {
             "archivo": nombre_archivo,
