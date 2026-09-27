@@ -285,7 +285,7 @@ def _procesa_un_archivo(path, usuario, desde, hasta):
     return {"archivo": nombre_archivo, "error": None, "omitido_estructura": None, "matches": matches}
 
 
-def busca(usuario, desde=None, hasta=None, progreso=True, hilos=8):
+def busca(usuario, desde=None, hasta=None, progreso=True, hilos=8, mostrar_coincidencias=True):
     usuario = usuario.strip().lower()
     archivos = archivos_todos(desde=desde, hasta=hasta)
     total_archivos = len(archivos)
@@ -314,17 +314,20 @@ def busca(usuario, desde=None, hasta=None, progreso=True, hilos=8):
         }
         for futuro in concurrent.futures.as_completed(futuros):
             completados += 1
-            if progreso:
-                imprime_barra_progreso(completados, total_archivos, tiempo_inicio_busqueda)
             r = futuro.result()
             if r["error"]:
                 archivos_con_error.append(f"{r['archivo']}: {r['error']}")
+                if progreso:
+                    imprime_barra_progreso(completados, total_archivos, tiempo_inicio_busqueda)
                 continue
             if r["omitido_estructura"]:
                 archivos_omitidos_estructura.append(r["omitido_estructura"])
+                if progreso:
+                    imprime_barra_progreso(completados, total_archivos, tiempo_inicio_busqueda)
                 continue
             archivos_procesados_ok += 1
 
+            nuevos = []
             for x in r["matches"]:
                 s_low = x["sender"].strip().lower()
                 r_low = x["recipient"].strip().lower()
@@ -349,6 +352,16 @@ def busca(usuario, desde=None, hasta=None, progreso=True, hilos=8):
                     continue
                 vistos[huella] = (x["_archivo_origen"], x["subject"], x["size"])
                 resultados.append(x)
+                nuevos.append(x)
+
+            if mostrar_coincidencias and nuevos:
+                sys.stdout.write("\n")
+                for x in nuevos:
+                    fecha_txt = x["fecha_cdmx"].strftime("%d/%m/%Y %H:%M:%S")
+                    asunto = (x["subject"] or "(sin asunto)").strip()
+                    print(f"  [ENCONTRADO] {fecha_txt} -> {x['recipient']}  |  {asunto}")
+            if progreso:
+                imprime_barra_progreso(completados, total_archivos, tiempo_inicio_busqueda)
 
     resultados.sort(key=lambda r: r["fecha_cdmx"])
 
@@ -658,6 +671,11 @@ def main():
     ap.add_argument("--hasta", type=parsea_fecha_arg, default=None, help="Fecha final AAAA-MM-DD (opcional).")
     ap.add_argument("--csv-dir", dest="csv_dir", default=None, help=f"Carpeta con los MessageTrace_*.csv (default: {CSV_DIR}).")
     ap.add_argument("--hilos", type=int, default=8, help="Archivos a procesar en paralelo (default 8).")
+    ap.add_argument(
+        "--silencioso",
+        action="store_true",
+        help="No imprimir cada coincidencia en consola conforme se va encontrando (solo el resumen final).",
+    )
     args = ap.parse_args()
 
     if args.csv_dir:
@@ -676,7 +694,10 @@ def main():
            if (args.desde or args.hasta) else " — TODO el histórico disponible")
         + "..."
     )
-    resultados, auditoria = busca(usuario, desde=args.desde, hasta=args.hasta, hilos=args.hilos)
+    resultados, auditoria = busca(
+        usuario, desde=args.desde, hasta=args.hasta, hilos=args.hilos,
+        mostrar_coincidencias=not args.silencioso,
+    )
     print(f"Encontrados: {len(resultados)} mensaje(s) único(s).")
     print(f"Archivos revisados: {auditoria['archivos_procesados_ok']} de {auditoria['archivos_candidatos']} candidatos.")
     if auditoria["archivos_omitidos_estructura"]:
