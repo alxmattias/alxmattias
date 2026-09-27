@@ -261,7 +261,8 @@ def oculta_no_usado(ws, last_col, last_row, col_buffer=40, row_buffer=300):
 # ============================================================
 def _demo():
     import sys
-    logo_path = sys.argv[1] if len(sys.argv) > 1 else None
+    _default_logo = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "logo-ine.png")
+    logo_path = sys.argv[1] if len(sys.argv) > 1 else (_default_logo if os.path.isfile(_default_logo) else None)
 
     wb = Workbook()
     ws = wb.active
