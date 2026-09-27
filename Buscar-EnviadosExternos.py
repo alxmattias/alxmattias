@@ -416,6 +416,22 @@ def crea_hoja_detalle(ws, lista_datos):
 
     LAST_COL = 8
     r = 1
+    ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=LAST_COL)
+    c = ws.cell(r, 2, "INSTITUTO NACIONAL ELECTORAL")
+    c.font = F(bold=True, size=15, color=LILA_INST)
+    r += 1
+
+    ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=LAST_COL)
+    ws.cell(r, 2, "Unidad Técnica de Servicios de Informática (UTSI)").font = F(size=11)
+    r += 1
+    ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=LAST_COL)
+    ws.cell(
+        r, 2,
+        "Departamento de Soporte Técnico y Administración de Servicios de"
+        " Colaboración (DSTyASC)",
+    ).font = F(size=10, italic=True)
+    r += 2
+
     c = ws.cell(r, 2, "DETALLE DE CORREOS ENVIADOS A DOMINIOS EXTERNOS")
     c.font = F(bold=True, size=14, color=BLANCO)
     c.fill = PatternFill("solid", fgColor=LILA_INST)
@@ -483,6 +499,22 @@ def genera_excel(resultados, usuario, desde, hasta, out_path):
         ws1.column_dimensions[get_column_letter(i)].width = w
 
     r = 1
+    ws1.merge_cells(start_row=r, start_column=2, end_row=r, end_column=LAST_COL)
+    c = ws1.cell(r, 2, "INSTITUTO NACIONAL ELECTORAL")
+    c.font = F(bold=True, size=15, color=LILA_INST)
+    r += 1
+
+    ws1.merge_cells(start_row=r, start_column=2, end_row=r, end_column=LAST_COL)
+    ws1.cell(r, 2, "Unidad Técnica de Servicios de Informática (UTSI)").font = F(size=11)
+    r += 1
+    ws1.merge_cells(start_row=r, start_column=2, end_row=r, end_column=LAST_COL)
+    ws1.cell(
+        r, 2,
+        "Departamento de Soporte Técnico y Administración de Servicios de"
+        " Colaboración (DSTyASC)",
+    ).font = F(size=10, italic=True)
+    r += 2
+
     c = ws1.cell(r, 2, "REPORTE DE CORREOS ENVIADOS A DOMINIOS EXTERNOS")
     c.font = F(bold=True, size=14, color=BLANCO)
     c.fill = PatternFill("solid", fgColor=LILA_INST)

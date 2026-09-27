@@ -36,7 +36,6 @@ Requisitos (una sola vez):
 """
 
 import argparse
-import base64
 import concurrent.futures
 import csv
 import difflib
@@ -47,7 +46,6 @@ import sys
 import time
 import unicodedata
 from datetime import datetime, timedelta
-from io import BytesIO
 from zoneinfo import ZoneInfo
 
 # Sube el límite de tamaño de campo del módulo csv
@@ -61,7 +59,6 @@ except ImportError:
     HAVE_DATEUTIL = False
 
 import openpyxl
-from openpyxl.drawing.image import Image as XLImage
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.page import PageMargins
@@ -663,23 +660,6 @@ def busca_patron(patron, campo="destinatario", desde=None, hasta=None, progreso=
     return resultados, auditoria
 
 
-# LOGO BASE64 (INE, 432x118 px, PNG)
-LOGO_INE_PNG_BASE64 = (
-    "iVBORw0KGgoAAAANSUhEUgAAAbAAAAB2CAIAAAAm6lFgAAAQAElEQVR4AexdBWAURxfe2ZNcXEkIcRwiuDsUCi1uxQqlQKFGhRYo"
-    "1r8GpcWKS4EWKRQv7hIgBAkS4oEQd9fL6f/tbbgEIkQuyV2yx7vN7Js3b967Zma+72Vm37f4iAghwCHAIcAhwCFQNQIiQFy1KrhY"
-    "HAIcAhwCHAIUByFHAg4BDgEOAQ6BGkGAg7BGYOaCcAhwCHAIcBByHOAQ4BDgEOAQqBEEOAhrBGYuCIcAhwCHAAchxwEOAQ4BDgEO"
-    "gRpBgIOwRmDmgnAIcAhwCHAQchzgEOAQ4BDgEKgRBDgIawRmLgiHAIcAhwAHIccBDgEOAQ4BDoEaQYCDsEZg5oJwCHAIcAhwEHIc"
-    "4BDgEOAQ4BCoEQQ4CGsEZi4IhwCHAIcAB2GNfQe4b4SzXvIC+RUAAAAASUVORK5CYII="
-)
-
-
-def _logo_imagen():
-    try:
-        return BytesIO(base64.b64decode(LOGO_INE_PNG_BASE64))
-    except Exception:
-        return None
-
-
 def F(**k):
     return Font(name="Arial", **k)
 
@@ -720,23 +700,10 @@ def crea_hoja_detalle(ws, titulo_pestana, lista_datos, usuario):
     LAST_COL = 8
 
     r = 1
-    logo_stream = _logo_imagen()
-    if logo_stream:
-        img = XLImage(logo_stream)
-        alto_orig, ancho_orig = img.height, img.width
-        ancho_px = 240
-        alto_px = int(ancho_px * alto_orig / ancho_orig) if ancho_orig else 65
-        img.width = ancho_px
-        img.height = alto_px
-        ws.row_dimensions[1].height = 32
-        ws.row_dimensions[2].height = 32
-        ws.add_image(img, "B1")
-        r = 3
-    else:
-        ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=LAST_COL)
-        c = ws.cell(r, 2, "INSTITUTO NACIONAL ELECTORAL")
-        c.font = F(bold=True, size=15, color=LILA_INST)
-        r += 1
+    ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=LAST_COL)
+    c = ws.cell(r, 2, "INSTITUTO NACIONAL ELECTORAL")
+    c.font = F(bold=True, size=15, color=LILA_INST)
+    r += 1
 
     ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=LAST_COL)
     ws.cell(
@@ -849,23 +816,10 @@ def genera_excel(resultados, usuario, direccion, out_path):
         ws1.column_dimensions[get_column_letter(i)].width = w
 
     r = 1
-    logo_stream = _logo_imagen()
-    if logo_stream:
-        img = XLImage(logo_stream)
-        alto_orig, ancho_orig = img.height, img.width
-        ancho_px = 240
-        alto_px = int(ancho_px * alto_orig / ancho_orig) if ancho_orig else 65
-        img.width = ancho_px
-        img.height = alto_px
-        ws1.row_dimensions[1].height = 32
-        ws1.row_dimensions[2].height = 32
-        ws1.add_image(img, "B1")
-        r = 3
-    else:
-        ws1.merge_cells(start_row=r, start_column=2, end_row=r, end_column=LAST_COL)
-        c = ws1.cell(r, 2, "INSTITUTO NACIONAL ELECTORAL")
-        c.font = F(bold=True, size=15, color=LILA_INST)
-        r += 1
+    ws1.merge_cells(start_row=r, start_column=2, end_row=r, end_column=LAST_COL)
+    c = ws1.cell(r, 2, "INSTITUTO NACIONAL ELECTORAL")
+    c.font = F(bold=True, size=15, color=LILA_INST)
+    r += 1
 
     ws1.merge_cells(start_row=r, start_column=2, end_row=r, end_column=LAST_COL)
     ws1.cell(
@@ -1185,23 +1139,10 @@ def genera_excel_patron(resultados, patron, campo, desde, hasta, out_path):
         ws1.column_dimensions[get_column_letter(i)].width = w
 
     r = 1
-    logo_stream = _logo_imagen()
-    if logo_stream:
-        img = XLImage(logo_stream)
-        alto_orig, ancho_orig = img.height, img.width
-        ancho_px = 240
-        alto_px = int(ancho_px * alto_orig / ancho_orig) if ancho_orig else 65
-        img.width = ancho_px
-        img.height = alto_px
-        ws1.row_dimensions[1].height = 32
-        ws1.row_dimensions[2].height = 32
-        ws1.add_image(img, "B1")
-        r = 3
-    else:
-        ws1.merge_cells(start_row=r, start_column=2, end_row=r, end_column=LAST_COL)
-        c = ws1.cell(r, 2, "INSTITUTO NACIONAL ELECTORAL")
-        c.font = F(bold=True, size=15, color=LILA_INST)
-        r += 1
+    ws1.merge_cells(start_row=r, start_column=2, end_row=r, end_column=LAST_COL)
+    c = ws1.cell(r, 2, "INSTITUTO NACIONAL ELECTORAL")
+    c.font = F(bold=True, size=15, color=LILA_INST)
+    r += 1
 
     ws1.merge_cells(start_row=r, start_column=2, end_row=r, end_column=LAST_COL)
     ws1.cell(
