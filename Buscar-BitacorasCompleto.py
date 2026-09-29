@@ -958,6 +958,157 @@ def crea_hoja_detalle(ws, titulo_pestana, lista_datos):
     oculta_no_usado(ws, LAST_COL, r - 1)
 
 
+def _bloque_resumen_periodo(ws, r, last_col, series, border_all):
+    """
+    Desglose por período (por DÍA si el rango es corto, por MES si es
+    largo) — común a los 4 modos. `series` es una lista de (nombre,
+    lista_de_resultados): un solo elemento para los modos de una sola
+    lista (enviados/recibidos a externos, patrón, asunto), o dos
+    elementos (Enviados, Recibidos) para el modo --todo.
+    Si no hay resultados en ninguna serie, no dibuja nada y regresa `r`
+    sin cambios.
+    """
+    def bloque_titulo(row, texto):
+        ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=last_col)
+        c = ws.cell(row, 2, texto)
+        c.font = F(bold=True, size=11, color=BLANCO)
+        c.fill = PatternFill("solid", fgColor=LILA_OSCURO)
+        c.alignment = Alignment(horizontal="left", indent=1, vertical="center")
+        ws.row_dimensions[row].height = 20
+
+    n = len(series)
+    todos_items = [x for _, lista in series for x in lista]
+    if not todos_items:
+        return r
+
+    por_dia = {}
+    for idx, (_nombre, lista) in enumerate(series):
+        for x in lista:
+            d = x["fecha_cdmx"].date()
+            por_dia.setdefault(d, [0] * n)
+            por_dia[d][idx] += 1
+
+    dias_rango = []
+    _d = min(x["fecha_cdmx"] for x in todos_items).date()
+    _hasta_d = max(x["fecha_cdmx"] for x in todos_items).date()
+    while _d <= _hasta_d:
+        dias_rango.append(_d)
+        _d += timedelta(days=1)
+
+    UMBRAL_DIAS_PARA_AGRUPAR_POR_MES = 31
+    dow_es = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+    MESES_ES = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+                "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+
+    if len(dias_rango) <= UMBRAL_DIAS_PARA_AGRUPAR_POR_MES:
+        titulo_resumen = "RESUMEN POR DÍA"
+        etiqueta_col = "Fecha"
+        claves = dias_rango
+        por_periodo = por_dia
+        etiqueta_fn = lambda d: f"{d.strftime('%d/%m/%Y')} ({dow_es[d.weekday()]})"
+    else:
+        titulo_resumen = "RESUMEN POR MES"
+        etiqueta_col = "Mes"
+        por_mes = {}
+        for d, conteos in por_dia.items():
+            key = (d.year, d.month)
+            por_mes.setdefault(key, [0] * n)
+            for i in range(n):
+                por_mes[key][i] += conteos[i]
+        _min_d, _max_d = dias_rango[0], dias_rango[-1]
+        claves = []
+        y, m = _min_d.year, _min_d.month
+        while (y, m) <= (_max_d.year, _max_d.month):
+            claves.append((y, m))
+            m += 1
+            if m == 13:
+                m = 1
+                y += 1
+        por_periodo = por_mes
+        etiqueta_fn = lambda ym: f"{MESES_ES[ym[1]]} {ym[0]}"
+
+    bloque_titulo(r, titulo_resumen)
+    r += 1
+
+    if n == 1:
+        nombre_serie = series[0][0]
+        ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=4)
+        c = ws.cell(r, 2, etiqueta_col)
+        c.font = F(bold=True, size=9, color=BLANCO)
+        c.fill = PatternFill("solid", fgColor=LILA_INST)
+        c.alignment = Alignment(horizontal="center")
+        ws.merge_cells(start_row=r, start_column=5, end_row=r, end_column=last_col)
+        c = ws.cell(r, 5, nombre_serie)
+        c.font = F(bold=True, size=9, color=BLANCO)
+        c.fill = PatternFill("solid", fgColor=LILA_INST)
+        c.alignment = Alignment(horizontal="center")
+        for col in range(2, last_col + 1):
+            ws.cell(r, col).border = border_all
+        r += 1
+        for key in claves:
+            label = etiqueta_fn(key)
+            cnt = por_periodo.get(key, [0])[0]
+            sin_actividad = cnt == 0
+            color_txt = "999999" if sin_actividad else "000000"
+            ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=4)
+            c = ws.cell(r, 2, label)
+            c.font = F(size=9, color=color_txt)
+            c.alignment = Alignment(horizontal="left", indent=1)
+            ws.merge_cells(start_row=r, start_column=5, end_row=r, end_column=last_col)
+            c = ws.cell(r, 5, cnt)
+            c.font = F(size=9, bold=not sin_actividad, color=color_txt if sin_actividad else LILA_INST)
+            c.alignment = Alignment(horizontal="center")
+            for col in range(2, last_col + 1):
+                ws.cell(r, col).border = border_all
+                if sin_actividad:
+                    ws.cell(r, col).fill = PatternFill("solid", fgColor=GRIS_CLARO)
+            r += 1
+    else:
+        ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=3)
+        c = ws.cell(r, 2, etiqueta_col)
+        c.font = F(bold=True, size=9, color=BLANCO)
+        c.fill = PatternFill("solid", fgColor=LILA_INST)
+        c.alignment = Alignment(horizontal="center")
+        for j, (nombre_serie, _lista) in zip((4, 5), series):
+            c = ws.cell(r, j, nombre_serie)
+            c.font = F(bold=True, size=9, color=BLANCO)
+            c.fill = PatternFill("solid", fgColor=LILA_INST)
+            c.alignment = Alignment(horizontal="center")
+        ws.merge_cells(start_row=r, start_column=6, end_row=r, end_column=7)
+        c = ws.cell(r, 6, "Total")
+        c.font = F(bold=True, size=9, color=BLANCO)
+        c.fill = PatternFill("solid", fgColor=LILA_INST)
+        c.alignment = Alignment(horizontal="center")
+        for col in range(2, last_col + 1):
+            ws.cell(r, col).border = border_all
+        r += 1
+        for key in claves:
+            label = etiqueta_fn(key)
+            conteos = por_periodo.get(key, [0, 0])
+            total = sum(conteos)
+            sin_actividad = total == 0
+            color_txt = "999999" if sin_actividad else "000000"
+            ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=3)
+            c = ws.cell(r, 2, label)
+            c.font = F(size=9, color=color_txt)
+            c.alignment = Alignment(horizontal="left", indent=1)
+            for j, val in zip((4, 5), conteos):
+                c = ws.cell(r, j, val)
+                c.font = F(size=9, color=color_txt)
+                c.alignment = Alignment(horizontal="center")
+            ws.merge_cells(start_row=r, start_column=6, end_row=r, end_column=7)
+            c = ws.cell(r, 6, total)
+            c.font = F(size=9, bold=not sin_actividad, color=color_txt if sin_actividad else LILA_INST)
+            c.alignment = Alignment(horizontal="center")
+            for col in range(2, last_col + 1):
+                ws.cell(r, col).border = border_all
+                if sin_actividad:
+                    ws.cell(r, col).fill = PatternFill("solid", fgColor=GRIS_CLARO)
+            r += 1
+    r += 1
+    return r
+
+
 def _bloque_resumen_status(ws, r, last_col, resultados, border_all):
     def bloque_titulo(row, texto):
         ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=last_col)
@@ -1118,6 +1269,7 @@ def genera_excel_direccion(resultados, usuario, direccion, desde, hasta, out_pat
     ws1.row_dimensions[r].height = 20
     r += 2
 
+    r = _bloque_resumen_periodo(ws1, r, LAST_COL, [(titulo_modo.capitalize(), resultados)], border_all)
     r = _bloque_resumen_status(ws1, r, LAST_COL, resultados, border_all)
 
     ws1.page_setup.orientation = "landscape"
@@ -1220,111 +1372,7 @@ def genera_excel_todo(resultados, usuario, desde, hasta, out_path):
         r += 1
     r += 1
 
-    # Desglose por día (rango corto) o por mes (rango largo)
-    por_dia = {}
-    for x in enviados_list:
-        d = x["fecha_cdmx"].date()
-        por_dia.setdefault(d, {"enviados": 0, "recibidos": 0})
-        por_dia[d]["enviados"] += 1
-    for x in recibidos_list:
-        d = x["fecha_cdmx"].date()
-        por_dia.setdefault(d, {"enviados": 0, "recibidos": 0})
-        por_dia[d]["recibidos"] += 1
-
-    dias_rango = []
-    if resultados:
-        _d = min(x["fecha_cdmx"] for x in resultados).date()
-        _hasta_d = max(x["fecha_cdmx"] for x in resultados).date()
-        while _d <= _hasta_d:
-            dias_rango.append(_d)
-            _d += timedelta(days=1)
-
-    UMBRAL_DIAS_PARA_AGRUPAR_POR_MES = 31
-    if len(dias_rango) <= UMBRAL_DIAS_PARA_AGRUPAR_POR_MES:
-        titulo_resumen = "RESUMEN POR DÍA"
-        etiqueta_col = "Fecha"
-        dow_es = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
-        periodos = []
-        for dia in dias_rango:
-            datos_dia = por_dia.get(dia, {"enviados": 0, "recibidos": 0})
-            label = f"{dia.strftime('%d/%m/%Y')} ({dow_es[dia.weekday()]})"
-            periodos.append((label, datos_dia["enviados"], datos_dia["recibidos"]))
-    else:
-        titulo_resumen = "RESUMEN POR MES"
-        etiqueta_col = "Mes"
-        MESES_ES = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
-                    "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-        por_mes = {}
-        for x in enviados_list:
-            key = (x["fecha_cdmx"].year, x["fecha_cdmx"].month)
-            por_mes.setdefault(key, {"enviados": 0, "recibidos": 0})
-            por_mes[key]["enviados"] += 1
-        for x in recibidos_list:
-            key = (x["fecha_cdmx"].year, x["fecha_cdmx"].month)
-            por_mes.setdefault(key, {"enviados": 0, "recibidos": 0})
-            por_mes[key]["recibidos"] += 1
-        meses_rango = []
-        if resultados:
-            _min_d = min(x["fecha_cdmx"] for x in resultados).date()
-            _max_d = max(x["fecha_cdmx"] for x in resultados).date()
-            y, m = _min_d.year, _min_d.month
-            while (y, m) <= (_max_d.year, _max_d.month):
-                meses_rango.append((y, m))
-                m += 1
-                if m == 13:
-                    m = 1
-                    y += 1
-        periodos = []
-        for (y, m) in meses_rango:
-            datos_mes = por_mes.get((y, m), {"enviados": 0, "recibidos": 0})
-            label = f"{MESES_ES[m]} {y}"
-            periodos.append((label, datos_mes["enviados"], datos_mes["recibidos"]))
-
-    bloque_titulo(r, titulo_resumen)
-    r += 1
-    ws1.merge_cells(start_row=r, start_column=2, end_row=r, end_column=3)
-    c = ws1.cell(r, 2, etiqueta_col)
-    c.font = F(bold=True, size=9, color=BLANCO)
-    c.fill = PatternFill("solid", fgColor=LILA_INST)
-    c.alignment = Alignment(horizontal="center")
-    for j, lbl in zip((4, 5), ("Enviados", "Recibidos")):
-        c = ws1.cell(r, j, lbl)
-        c.font = F(bold=True, size=9, color=BLANCO)
-        c.fill = PatternFill("solid", fgColor=LILA_INST)
-        c.alignment = Alignment(horizontal="center")
-    ws1.merge_cells(start_row=r, start_column=6, end_row=r, end_column=7)
-    c = ws1.cell(r, 6, "Total")
-    c.font = F(bold=True, size=9, color=BLANCO)
-    c.fill = PatternFill("solid", fgColor=LILA_INST)
-    c.alignment = Alignment(horizontal="center")
-    for col in range(2, LAST_COL + 1):
-        ws1.cell(r, col).border = border_all
-    r += 1
-    for label, env_d, rec_d in periodos:
-        tot_d = env_d + rec_d
-        sin_actividad = tot_d == 0
-        color_txt = "999999" if sin_actividad else "000000"
-        ws1.merge_cells(start_row=r, start_column=2, end_row=r, end_column=3)
-        c = ws1.cell(r, 2, label)
-        c.font = F(size=9, color=color_txt)
-        c.alignment = Alignment(horizontal="left", indent=1)
-        c = ws1.cell(r, 4, env_d)
-        c.font = F(size=9, color=color_txt)
-        c.alignment = Alignment(horizontal="center")
-        c = ws1.cell(r, 5, rec_d)
-        c.font = F(size=9, color=color_txt)
-        c.alignment = Alignment(horizontal="center")
-        ws1.merge_cells(start_row=r, start_column=6, end_row=r, end_column=7)
-        c = ws1.cell(r, 6, tot_d)
-        c.font = F(size=9, bold=not sin_actividad, color=color_txt if sin_actividad else LILA_INST)
-        c.alignment = Alignment(horizontal="center")
-        for col in range(2, LAST_COL + 1):
-            ws1.cell(r, col).border = border_all
-            if sin_actividad:
-                ws1.cell(r, col).fill = PatternFill("solid", fgColor=GRIS_CLARO)
-        r += 1
-    r += 1
-
+    r = _bloque_resumen_periodo(ws1, r, LAST_COL, [("Enviados", enviados_list), ("Recibidos", recibidos_list)], border_all)
     r = _bloque_resumen_status(ws1, r, LAST_COL, resultados, border_all)
 
     ws1.page_setup.orientation = "landscape"
@@ -1424,6 +1472,7 @@ def genera_excel_patron(resultados, patron, campo, desde, hasta, out_path):
     ws1.row_dimensions[r].height = 20
     r += 2
 
+    r = _bloque_resumen_periodo(ws1, r, LAST_COL, [("Coincidencias", resultados)], border_all)
     r = _bloque_resumen_status(ws1, r, LAST_COL, resultados, border_all)
 
     ws1.page_setup.orientation = "landscape"
@@ -1523,6 +1572,7 @@ def genera_excel_asunto(resultados, asunto, desde, hasta, out_path, estatus=None
     ws1.row_dimensions[r].height = 20
     r += 2
 
+    r = _bloque_resumen_periodo(ws1, r, LAST_COL, [("Coincidencias", resultados)], border_all)
     r = _bloque_resumen_status(ws1, r, LAST_COL, resultados, border_all)
 
     ws1.page_setup.orientation = "landscape"
