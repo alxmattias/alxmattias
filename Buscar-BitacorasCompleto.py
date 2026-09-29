@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Buscar-Bitacoras.py
+Buscar-BitacorasCompleto.py
 ====================
 Script único para consultar bitácoras de correo (Exchange Message Trace)
 directamente sobre los CSV de esta carpeta, con 4 modos de búsqueda y 4
@@ -18,24 +18,24 @@ origen, y el MessageId (usable como filtro aunque no se muestre aparte).
 --------------------------------------------------------------------
 MODO 1 — Enviados/recibidos hacia o desde dominios EXTERNOS
 (omite los dominios de DOMINIOS_INTERNOS):
-    python Buscar-Bitacoras.py --usuario correo@ine.mx --direccion enviados
-    python Buscar-Bitacoras.py --usuario correo@ine.mx --direccion recibidos
-    python Buscar-Bitacoras.py --usuario correo@ine.mx --direccion enviados --desde 2026-01-01 --hasta 2026-09-25
+    python Buscar-BitacorasCompleto.py --usuario correo@ine.mx --direccion enviados
+    python Buscar-BitacorasCompleto.py --usuario correo@ine.mx --direccion recibidos
+    python Buscar-BitacorasCompleto.py --usuario correo@ine.mx --direccion enviados --desde 2026-01-01 --hasta 2026-09-25
 
 MODO 2 — TODO (enviados + recibidos, SIN excluir dominios internos):
-    python Buscar-Bitacoras.py --usuario correo@ine.mx --todo
-    python Buscar-Bitacoras.py --usuario correo@ine.mx --todo --desde 2026-06-01 --hasta 2026-06-15
+    python Buscar-BitacorasCompleto.py --usuario correo@ine.mx --todo
+    python Buscar-BitacorasCompleto.py --usuario correo@ine.mx --todo --desde 2026-06-01 --hasta 2026-06-15
 
 MODO 3 — Búsqueda por PATRÓN (cualquier remitente -> destinatario parecido
 a una palabra, o al revés con --campo remitente; tolera acentos y typos):
-    python Buscar-Bitacoras.py --patron libelula
-    python Buscar-Bitacoras.py --patron libelula --campo remitente
-    python Buscar-Bitacoras.py --patron libelula --desde 2026-06-01 --hasta 2026-06-15
+    python Buscar-BitacorasCompleto.py --patron libelula
+    python Buscar-BitacorasCompleto.py --patron libelula --campo remitente
+    python Buscar-BitacorasCompleto.py --patron libelula --desde 2026-06-01 --hasta 2026-06-15
 
 MODO 4 — Búsqueda por ASUNTO (cualquier remitente/destinatario; tolera
 acentos y typos, igual que --patron):
-    python Buscar-Bitacoras.py --asunto "factura"
-    python Buscar-Bitacoras.py --asunto "cita programada" --desde 2026-06-01 --hasta 2026-06-15
+    python Buscar-BitacorasCompleto.py --asunto "factura"
+    python Buscar-BitacorasCompleto.py --asunto "cita programada" --desde 2026-06-01 --hasta 2026-06-15
 
 FILTROS EXTRA (se combinan con CUALQUIERA de los 4 modos anteriores):
     --estatus   : por estatus del mensaje (Entregado, Error, Pendiente,
@@ -47,10 +47,10 @@ FILTROS EXTRA (se combinan con CUALQUIERA de los 4 modos anteriores):
                   (ej. usuario que envió algo con "factura" en el asunto)
 
 Ejemplos combinando modo + filtros:
-    python Buscar-Bitacoras.py --usuario correo@ine.mx --direccion enviados --asunto factura --estatus error
-    python Buscar-Bitacoras.py --patron libelula --estatus "en cuarentena"
-    python Buscar-Bitacoras.py --msgid "1772407031850" --asunto cita
-    python Buscar-Bitacoras.py --usuario correo@ine.mx --todo --ip 200.34.165.45
+    python Buscar-BitacorasCompleto.py --usuario correo@ine.mx --direccion enviados --asunto factura --estatus error
+    python Buscar-BitacorasCompleto.py --patron libelula --estatus "en cuarentena"
+    python Buscar-BitacorasCompleto.py --msgid "1772407031850" --asunto cita
+    python Buscar-BitacorasCompleto.py --usuario correo@ine.mx --todo --ip 200.34.165.45
 
 Sin argumentos, el script pregunta de forma interactiva qué modo usar.
 --desde / --hasta son OPCIONALES en los 4 modos (formato AAAA-MM-DD,
